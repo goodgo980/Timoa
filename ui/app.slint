@@ -961,7 +961,7 @@ export component MiniWindow inherits Window {
 
 export component AlertWindow inherits Window {
     title: @tr("Timoa 提醒"); width: 360px;
-    height: (root.clock-chime ? 132px : root.warning ? 146px : 192px) + alert-message.preferred-height;
+    height: (root.clock-chime ? 140px : root.warning ? 154px : 200px) + alert-message.preferred-height;
     background: Theme.bg; default-font-family: Typography.body-family;
     icon: @image-url("../assets/logo.svg");
     always-on-top: true;
@@ -973,7 +973,12 @@ export component AlertWindow inherits Window {
     in property<[string]> quick-labels;
     callback dismiss(); callback quick-round(int); callback restart();
     VerticalLayout { padding: 22px; spacing: 14px;
-        EmphasisText { text: root.heading; color: Theme.accent-text; font-size: 24px; height: 34px; }
+    EmphasisText {
+    text: root.heading;
+    color: Theme.accent-text;
+    font-size: 30px;    // 24px → 30px
+    height: 40px;       // 34px → 40px，必须随字号同步加大，否则文字被裁切
+}
         alert-message := Text { text: root.label; color: Theme.text; font-size: 15px; wrap: word-wrap; vertical-stretch: 0; }
         if !root.warning && !root.clock-chime: HorizontalLayout { spacing: 8px; height: 32px;
             for value[index] in root.quick-labels: ActionButton {
