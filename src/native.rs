@@ -14,7 +14,7 @@ use windows_sys::Win32::{
     UI::{Controls::MARGINS, Input::KeyboardAndMouse::*, Shell::*, WindowsAndMessaging::*},
 };
 
-// ★修改1：事件枚举新增气泡点击与气泡超时两个事件
+// Added balloon click/timeout events
 pub enum Event { Show, Quit, BalloonClick, BalloonTimeout }
 
 static EVENTS: OnceLock<Sender<Event>> = OnceLock::new();
@@ -103,7 +103,7 @@ impl Bridge {
         }
     }
 
-    // ★修改2：新增气泡通知方法。Win7 显示经典气泡，Win10/11 自动映射为系统 Toast。
+    // Show a tray balloon: classic balloon on Win7, toast on Win10/11
     pub fn balloon(&self, title: &str, message: &str, warning: bool) {
         unsafe {
             let mut icon: NOTIFYICONDATAW = std::mem::zeroed();
@@ -111,10 +111,10 @@ impl Bridge {
             icon.hWnd = self.hwnd;
             icon.uID = 1;
             icon.uFlags = NIF_INFO;
-            // Timoa 自己负责播放提醒音，这里让系统气泡静音，避免响两次。
+            // Timoa plays its own reminder sound, so keep the system balloon silent.
             icon.dwInfoFlags = if warning { NIIF_WARNING | NIIF_NOSOUND } else { NIIF_INFO | NIIF_NOSOUND };
             // NOTIFYICONDATAW is packed on x86. Build the text in an aligned local array.
-            // 标题最长 63 个字符，正文最长 255 个字符，超长自动截断。
+           // Title up to 63 chars, body up to 255 chars; longer text is truncated
             let mut title_buf = [0u16; 64];
             for (target, value) in title_buf.iter_mut().take(63).zip(title.encode_utf16()) {
                 *target = value;
@@ -207,7 +207,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, w: WPARAM, l: LP
                     }
                 }
                 PostMessageW(hwnd, WM_NULL, 0, 0);
-            // ★修改3：处理气泡消息（消息码与托盘消息一样从 lParam 低 16 位取得）
+            // Balloon messages arrive in the same low 16 bits of lParam as tray events
             } else if event == 0x405 {
                 // NIN_BALLOONUSERCLICK：用户点击了气泡
                 if let Some(sender) = EVENTS.get() {
