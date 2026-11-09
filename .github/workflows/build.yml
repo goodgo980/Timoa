@@ -25,25 +25,41 @@ jobs:
           update: false
           install: mingw-w64-x86_64-gcc
 
-      - name: 把 MinGW 加入 PATH
+      - name: 补齐 windres 别名并加入 PATH
         shell: pwsh
         env:
           MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
         run: |
-          # 优先用 action 输出的真实安装位置；为空时按候选路径兜底
+          # 定位 MSYS2 真实安装目录（新版 setup-msys2 装在临时目录，
+          # 优先用 action 输出，为空时按候选路径兜底）
           $loc = $env:MSYS2_LOCATION
           if ([string]::IsNullOrWhiteSpace($loc)) {
             foreach ($c in @("$env:RUNNER_TEMP\msys64", "$env:GITHUB_WORKSPACE\msys64", 'C:\msys64')) {
               if (Test-Path (Join-Path $c 'mingw64\bin\gcc.exe')) { $loc = $c; break }
             }
           }
-          if ([string]::IsNullOrWhiteSpace($loc)) { throw "未找到 MSYS2 安装位置" }
+          if ([string]::IsNullOrWhiteSpace($loc)) { throw "MSYS2 install location not found" }
           $bin = Join-Path $loc.Trim() 'mingw64\bin'
           if (-not (Test-Path (Join-Path $bin 'gcc.exe'))) { throw "gcc.exe not found at $bin" }
           Write-Host "MinGW bin directory: $bin"
-          # MSYS2 原生自带 x86_64-w64-mingw32-gcc.exe 与 x86_64-w64-mingw32-windres.exe，
-          # 不需要复制别名；只要把这个目录加入 PATH，
-          # build.rs 嵌资源用的 windres 和链接用的 gcc 就都能找到
+          # Timoa 的 build.rs 对 GNU 目标固定调用 x86_64-w64-mingw32-windres，
+          # 而 MSYS2 只提供不带前缀的 windres.exe —— 补一个别名。
+          # gcc 的带前缀版本 MSYS2 自带；用 Test-Path 守卫，已存在则跳过。
+          foreach ($name in @('gcc', 'windres')) {
+            $src = Join-Path $bin "$name.exe"
+            $dst = Join-Path $bin "x86_64-w64-mingw32-$name.exe"
+            if ((Test-Path $src) -and -not (Test-Path $dst)) {
+              Copy-Item $src $dst -Force
+              Write-Host "Created alias: $dst"
+            } else {
+              Write-Host "Skip (already exists or source missing): $dst"
+            }
+          }
+          # 自检：build.rs 嵌资源必需的工具必须齐备
+          if (-not (Test-Path (Join-Path $bin 'x86_64-w64-mingw32-windres.exe'))) {
+            throw "windres alias missing at $bin"
+          }
+          Write-Host "windres alias OK"
           Add-Content $env:GITHUB_PATH $bin
 
       - name: 编译
