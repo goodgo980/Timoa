@@ -1,9 +1,9 @@
 name: Build Timoa
 
 on:
-  workflow_dispatch:          # 允许手动触发
+  workflow_dispatch:
   push:
-    branches: ["**"]          # 任何推送自动触发
+    branches: ["**"]
 
 jobs:
   build:
@@ -24,9 +24,12 @@ jobs:
           update: false
           install: mingw-w64-x86_64-gcc
 
-      - name: 把 MinGW 加入 PATH
+      - name: 准备工具别名并加入 PATH
         shell: pwsh
-        run: Add-Content $env:GITHUB_PATH 'C:\msys64\mingw64\bin'
+        run: |
+          Copy-Item C:\msys64\mingw64\bin\gcc.exe     C:\msys64\mingw64\bin\x86_64-w64-mingw32-gcc.exe     -Force
+          Copy-Item C:\msys64\mingw64\bin\windres.exe C:\msys64\mingw64\bin\x86_64-w64-mingw32-windres.exe -Force
+          Add-Content $env:GITHUB_PATH 'C:\msys64\mingw64\bin'
 
       - name: 编译
         shell: pwsh
