@@ -63,7 +63,7 @@ struct App {
     // owns a full render surface and scene graph, so allocating a fresh one per
     // reminder both spikes memory and fragments the allocator.
     alert_ui: Option<AlertWindow>,
-    bridge: Option<Rc<RefCell<native::Bridge>>>, // ★修改1：气泡通知需要访问托盘桥接
+    bridge: Option<Rc<RefCell<native::Bridge>>>, // Balloon notifications need access to the tray bridge
     alert: Option<Alert>,
     clock_alert: Option<Alert>,
     pending_clock: Option<Alert>,
@@ -812,8 +812,8 @@ fn show_alert_window(controller: &Controller, ui: &AlertWindow) {
     });
 }
 
-// ★修改4：新增函数——点击气泡后，显示已经就绪（内容已填好）的提醒窗口。
-// 若点击时提醒已被收起，则退回到打开主窗口的原有行为。
+// After a balloon click, show the already-prepared reminder window.
+// Falls back to the main window if the alert was already dismissed.
 fn reveal_alert_window(controller: &Controller) {
     let active = {
         let app = controller.borrow();
@@ -859,8 +859,8 @@ fn present_alert(controller: &Controller) {
     });
     ui.set_warning(alert.warning);
     ui.set_countdown(alert.countdown);
-    // ★修改5：不再自动弹出提醒窗口，改为发托盘气泡；窗口内容已填好，
-    // 用户点击气泡后才显示（窗口属性设置保留，供 reveal 使用）。
+    // Do not auto-show the reminder window; send a tray balloon instead.
+    // Window properties stay set so reveal can display them on click.
     let balloon_title = i18n::t(&alert.title).to_string();
     let balloon_body = if alert.default_label {
         i18n::t(&alert.label).to_string()
@@ -878,7 +878,7 @@ fn present_alert(controller: &Controller) {
     if let Some(bridge) = bridge {
         bridge.borrow().balloon(&balloon_title, &balloon_body, balloon_warning);
     }
-    // 兜底：万一系统没有回发气泡超时消息，30 秒后自动收起，避免卡住提醒队列。
+   // Fallback: if no balloon timeout arrives, dismiss after 30s to unblock the queue.
     let weak = Rc::downgrade(controller);
     slint::Timer::single_shot(Duration::from_secs(30), move || {
         if let Some(app) = weak.upgrade() {
@@ -925,7 +925,7 @@ fn present_clock_alert(controller: &Controller) {
     ui.set_label(alert.label.clone().into());
     ui.set_warning(false);
     ui.set_countdown(false);
-    // ★修改6：整点/半点报时同样改为托盘气泡。
+    // Hourly/half-hour chimes also use the tray balloon
     let balloon_title = i18n::t(&alert.title).to_string();
     let balloon_body = alert.label.clone();
     let token = alert.token.clone();
@@ -1836,7 +1836,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         about: None,
         alerts: VecDeque::new(),
         alert_ui: None,
-        bridge: None, // ★修改2：初始为 None，创建 Bridge 后再挂上
+        bridge: None, // Starts as None; attached after the Bridge is created
         alert: None,
         clock_alert: None,
         pending_clock: None,
@@ -1860,7 +1860,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     app.borrow_mut().commit();
     let (native_sender, native_receiver) = mpsc::channel();
     let bridge = Rc::new(RefCell::new(native::Bridge::new(native_sender).map_err(std::io::Error::other)?));
-    app.borrow_mut().bridge = Some(bridge.clone()); // ★修改3：把 Bridge 挂到 App 上，供 present_alert 使用
+    app.borrow_mut().bridge = Some(bridge.clone()); // Attach the Bridge to App so present_alert can use it
     if !startup {
         ui.show()?;
     }
@@ -1879,14 +1879,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     timer.start(slint::TimerMode::Repeated, Duration::from_millis(100), move || {
         let Some(controller) = weak.upgrade() else { return };
         let mut app = controller.borrow_mut();
-        let mut reveal_alert = false; // ★修改7a：记录本帧内是否点了气泡
+        let mut reveal_alert = false; // Track whether the balloon was clicked during this tick
         while let Ok(event) = native_receiver.try_recv() {
             match event {
                 native::Event::Show => app.show_current_window(),
                 native::Event::Quit => app.request_quit(),
-                native::Event::BalloonClick => reveal_alert = true, // ★修改7b：点击气泡 → 打开提醒窗口
+                native::Event::BalloonClick => reveal_alert = true, // Balloon click -> open the reminder window
                 native::Event::BalloonTimeout => {
-                    // ★修改7c：气泡超时自动收起提醒；用户已点开提醒窗口时不打扰。
+                    // Balloon timeout: auto-dismiss unless the reminder window is already open
                     let visible = app.alert_ui.as_ref().map_or(false, |ui| ui.window().is_visible());
                     if !visible {
                         app.close_alert();
@@ -1954,7 +1954,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let show_clock = app.pending_clock.is_some();
         drop(app);
         if reveal_alert {
-            reveal_alert_window(&controller); // ★修改7d：本帧有气泡点击，显示提醒窗口
+            reveal_alert_window(&controller); // A balloon was clicked this tick; show the reminder window
         }
         if show_alert {
             present_alert(&controller);
