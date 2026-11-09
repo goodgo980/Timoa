@@ -19,36 +19,31 @@ jobs:
 
       - name: 安装 MinGW-w64 编译器
         uses: msys2/setup-msys2@v2
-        id: msys2                          # ← 新增 id，供下一步读取输出
+        id: msys2
         with:
           msystem: MINGW64
           update: false
           install: mingw-w64-x86_64-gcc
 
-      - name: 准备工具别名并加入 PATH
+      - name: 把 MinGW 加入 PATH
         shell: pwsh
         env:
           MSYS2_LOCATION: ${{ steps.msys2.outputs.msys2-location }}
         run: |
-          # 新版 setup-msys2 装在临时目录（如 D:\a\_temp\msys64），
-          # 官方输出 msys2-location 会给出真实路径；若为空则按候选路径兜底
-          if ([string]::IsNullOrWhiteSpace($env:MSYS2_LOCATION)) {
-            $candidates = @("$env:RUNNER_TEMP\msys64", "$env:GITHUB_WORKSPACE\msys64", 'C:\msys64')
-            foreach ($c in $candidates) {
-              if (Test-Path (Join-Path $c 'mingw64\bin\gcc.exe')) { $env:MSYS2_LOCATION = $c; break }
+          # 优先用 action 输出的真实安装位置；为空时按候选路径兜底
+          $loc = $env:MSYS2_LOCATION
+          if ([string]::IsNullOrWhiteSpace($loc)) {
+            foreach ($c in @("$env:RUNNER_TEMP\msys64", "$env:GITHUB_WORKSPACE\msys64", 'C:\msys64')) {
+              if (Test-Path (Join-Path $c 'mingw64\bin\gcc.exe')) { $loc = $c; break }
             }
           }
-          if ([string]::IsNullOrWhiteSpace($env:MSYS2_LOCATION)) {
-            throw "未找到 MSYS2 安装位置，请把日志反馈给维护者"
-          }
-          $bin = Join-Path $env:MSYS2_LOCATION.Trim() 'mingw64\bin'
-          if (-not (Test-Path (Join-Path $bin 'gcc.exe'))) {
-            throw "gcc.exe not found at $bin"
-          }
+          if ([string]::IsNullOrWhiteSpace($loc)) { throw "未找到 MSYS2 安装位置" }
+          $bin = Join-Path $loc.Trim() 'mingw64\bin'
+          if (-not (Test-Path (Join-Path $bin 'gcc.exe'))) { throw "gcc.exe not found at $bin" }
           Write-Host "MinGW bin directory: $bin"
-          # 补齐 MSYS2 缺失的带前缀工具名，供 winresource（windres）和链接器（gcc）使用
-          Copy-Item (Join-Path $bin 'gcc.exe')     (Join-Path $bin 'x86_64-w64-mingw32-gcc.exe')     -Force
-          Copy-Item (Join-Path $bin 'windres.exe') (Join-Path $bin 'x86_64-w64-mingw32-windres.exe') -Force
+          # MSYS2 原生自带 x86_64-w64-mingw32-gcc.exe 与 x86_64-w64-mingw32-windres.exe，
+          # 不需要复制别名；只要把这个目录加入 PATH，
+          # build.rs 嵌资源用的 windres 和链接用的 gcc 就都能找到
           Add-Content $env:GITHUB_PATH $bin
 
       - name: 编译
